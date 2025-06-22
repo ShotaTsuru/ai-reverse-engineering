@@ -45,10 +45,25 @@ db-down: ## Stop database services
 test-frontend: ## Run frontend tests
 	cd frontend && npm test
 
+test-frontend-e2e: ## Run frontend E2E tests
+	cd frontend && npm run test:e2e
+
 test-backend: ## Run backend tests
 	cd backend && go test ./...
 
+test-backend-unit: ## Run backend unit tests
+	cd backend && go test -v -race -coverprofile=coverage.out ./...
+
+test-backend-integration: ## Run backend integration tests
+	cd backend && go test -v -tags=integration ./tests/integration/...
+
+test-coverage: ## Show test coverage
+	cd backend && go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: backend/coverage.html"
+
 test: test-frontend test-backend ## Run all tests
+
+test-all: test-frontend test-frontend-e2e test-backend-unit test-backend-integration ## Run all tests including E2E
 
 # Installation
 install: ## Install dependencies
