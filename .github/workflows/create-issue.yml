@@ -1,0 +1,77 @@
+name: Create Issue Manually
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: 'Issueのタイトル'
+        required: true
+        type: string
+      body:
+        description: 'Issueの内容'
+        required: true
+        type: string
+      labels:
+        description: 'ラベル（カンマ区切り）'
+        required: false
+        default: ''
+        type: string
+      assignees:
+        description: '担当者（カンマ区切り）'
+        required: false
+        default: ''
+        type: string
+      priority:
+        description: '優先度'
+        required: false
+        default: 'medium'
+        type: choice
+        options:
+          - 'low'
+          - 'medium'
+          - 'high'
+          - 'urgent'
+
+jobs:
+  create-issue:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Create Issue
+        run: |
+          # 優先度に応じてラベルを追加
+          PRIORITY_LABEL=""
+          case "${{ github.event.inputs.priority }}" in
+            "low") PRIORITY_LABEL="priority:low" ;;
+            "medium") PRIORITY_LABEL="priority:medium" ;;
+            "high") PRIORITY_LABEL="priority:high" ;;
+            "urgent") PRIORITY_LABEL="priority:urgent" ;;
+          esac
+          
+          # ラベルの組み合わせ
+          ALL_LABELS="${{ github.event.inputs.labels }}"
+          if [ -n "$ALL_LABELS" ] && [ -n "$PRIORITY_LABEL" ]; then
+            ALL_LABELS="$ALL_LABELS,$PRIORITY_LABEL"
+          elif [ -n "$PRIORITY_LABEL" ]; then
+            ALL_LABELS="$PRIORITY_LABEL"
+          fi
+          
+          # Issue作成コマンドの構築
+          CMD="gh issue create --title '${{ github.event.inputs.title }}' --body '${{ github.event.inputs.body }}'"
+          
+          if [ -n "$ALL_LABELS" ]; then
+            CMD="$CMD --label '$ALL_LABELS'"
+          fi
+          
+          if [ -n '${{ github.event.inputs.assignees }}' ]; then
+            CMD="$CMD --assignee '${{ github.event.inputs.assignees }}'"
+          fi
+          
+          # Issue作成の実行
+          eval $CMD
+          
+          echo "✅ Issue「${{ github.event.inputs.title }}」を作成しました"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }} 
