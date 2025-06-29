@@ -4,22 +4,36 @@
 
 ## 🏛️ アーキテクチャパターン
 
-### 1. レイヤードアーキテクチャ（バックエンド）
+### 1. クリーンアーキテクチャ（バックエンド）
 
 ```
-presentation/   # controllers/ - HTTPハンドラー
+外部レイヤー (Frameworks & Drivers)
     ↓
-business/       # services/ - ビジネスロジック
+インターフェースアダプター (Interface Adapters)
     ↓
-persistence/    # models/ - データアクセス
+アプリケーションビジネスルール (Application Business Rules)
     ↓
-database/       # PostgreSQL, Redis
+エンタープライズビジネスルール (Enterprise Business Rules)
+```
+
+**レイヤー構成：**
+```
+controllers/     # インターフェースアダプター - HTTPハンドラー
+    ↓ (依存関係逆転)
+services/        # アプリケーションビジネスルール - ユースケース
+    ↓ (依存関係逆転)
+domain/          # エンタープライズビジネスルール - エンティティ
+    ↑ (インターフェース実装)
+repositories/    # データアクセス抽象化
+    ↑ (実装)
+infrastructure/  # 外部レイヤー - データベース、外部API
 ```
 
 **実装原則：**
-- 上位レイヤーは下位レイヤーのみに依存
-- ビジネスロジックはcontrollersに書かない
-- データベース操作はmodels層で抽象化
+- 依存関係は内側に向かってのみ流れる
+- 内側の層は外側の層を知らない
+- インターフェースによる依存関係逆転
+- ドメインロジックはドメイン層に集約
 
 ### 2. コンポーネント指向設計（フロントエンド）
 
@@ -35,33 +49,135 @@ molecules/      # 基本UIコンポーネント
 atoms/          # プリミティブコンポーネント
 ```
 
-## 🔧 Go バックエンド実装パターン
+## 🔧 Go クリーンアーキテクチャ実装パターン
 
-### HTTP ハンドラーパターン
+### ドメイン層（エンティティ）
 
 ```go
-// 標準的なコントローラー構造
-type ProjectController struct {
-    db      *gorm.DB
-    redis   *redis.Client
-    service *services.ProjectService
+// domain/entities/project.go
+package entities
+
+import "time"
+
+type Project struct {
+    ID          string
+    Name        string
+    Description string
+    Status      ProjectStatus
+    CreatedAt   time.Time
+    UpdatedAt   time.Time
 }
 
-// コンストラクタパターン
-func NewProjectController(db *gorm.DB, redis *redis.Client) *ProjectController {
-    return &ProjectController{
-        db:      db,
-        redis:   redis,
-        service: services.NewProjectService(db),
+type ProjectStatus string
+
+const (
+    StatusPending    ProjectStatus = "pending"
+    StatusActive     ProjectStatus = "active"
+    StatusCompleted  ProjectStatus = "completed"
+)
+
+// ビジネスルール
+func (p *Project) CanBeDeleted() bool {
+    return p.Status == StatusPending || p.Status == StatusCompleted
+}
+```
+
+### リポジトリインターフェース（ドメイン層）
+
+```go
+// domain/repositories/project_repository.go
+package repositories
+
+import "context"
+
+type ProjectRepository interface {
+    Save(ctx context.Context, project *entities.Project) error
+    FindByID(ctx context.Context, id string) (*entities.Project, error)
+    FindAll(ctx context.Context) ([]*entities.Project, error)
+    Delete(ctx context.Context, id string) error
+}
+```
+
+### ユースケース層（アプリケーションビジネスルール）
+
+```go
+// application/usecases/project_usecase.go
+package usecases
+
+type ProjectUsecase struct {
+    projectRepo repositories.ProjectRepository
+}
+
+func NewProjectUsecase(projectRepo repositories.ProjectRepository) *ProjectUsecase {
+    return &ProjectUsecase{
+        projectRepo: projectRepo,
     }
 }
 
-// ハンドラーメソッドパターン
-func (pc *ProjectController) GetProjects(c *gin.Context) {
-    // 1. リクエストバリデーション
-    // 2. サービス層呼び出し
-    // 3. レスポンス生成
-    // 4. エラーハンドリング
+func (pu *ProjectUsecase) CreateProject(ctx context.Context, name, description string) (*entities.Project, error) {
+    // ビジネスルール適用
+    project := &entities.Project{
+        ID:          generateID(),
+        Name:        name,
+        Description: description,
+        Status:      entities.StatusPending,
+        CreatedAt:   time.Now(),
+    }
+    
+    return project, pu.projectRepo.Save(ctx, project)
+}
+```
+
+### インフラストラクチャ層（リポジトリ実装）
+
+```go
+// infrastructure/repositories/project_repository_impl.go
+package repositories
+
+type ProjectRepositoryImpl struct {
+    db *gorm.DB
+}
+
+func NewProjectRepositoryImpl(db *gorm.DB) repositories.ProjectRepository {
+    return &ProjectRepositoryImpl{db: db}
+}
+
+func (r *ProjectRepositoryImpl) Save(ctx context.Context, project *entities.Project) error {
+    model := toGormModel(project)
+    return r.db.WithContext(ctx).Save(model).Error
+}
+```
+
+### インターフェースアダプター層（コントローラー）
+
+```go
+// interfaces/controllers/project_controller.go
+package controllers
+
+type ProjectController struct {
+    projectUsecase *usecases.ProjectUsecase
+}
+
+func NewProjectController(projectUsecase *usecases.ProjectUsecase) *ProjectController {
+    return &ProjectController{
+        projectUsecase: projectUsecase,
+    }
+}
+
+func (pc *ProjectController) CreateProject(c *gin.Context) {
+    var req CreateProjectRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    project, err := pc.projectUsecase.CreateProject(c.Request.Context(), req.Name, req.Description)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    
+    c.JSON(http.StatusCreated, gin.H{"project": toResponse(project)})
 }
 ```
 
@@ -91,40 +207,88 @@ func (pc *ProjectController) HandleError(c *gin.Context, err error) {
 }
 ```
 
-### データベース接続パターン
+### 依存性注入パターン（クリーンアーキテクチャ）
 
 ```go
-// シングルトンパターンでDB接続管理
-var (
-    db   *gorm.DB
-    once sync.Once
-)
+// infrastructure/di/container.go
+package di
 
-func GetDB() *gorm.DB {
-    once.Do(func() {
-        var err error
-        db, err = initDB()
-        if err != nil {
-            log.Fatal("Failed to connect to database:", err)
-        }
-    })
-    return db
+type Container struct {
+    projectRepo    repositories.ProjectRepository
+    projectUsecase *usecases.ProjectUsecase
+    projectController *controllers.ProjectController
 }
 
-// 環境変数からの設定読み込み
-func initDB() (*gorm.DB, error) {
+func NewContainer(db *gorm.DB) *Container {
+    // インフラストラクチャ層の実装を注入
+    projectRepo := repositories.NewProjectRepositoryImpl(db)
+    
+    // ユースケース層にリポジトリを注入
+    projectUsecase := usecases.NewProjectUsecase(projectRepo)
+    
+    // コントローラー層にユースケースを注入
+    projectController := controllers.NewProjectController(projectUsecase)
+    
+    return &Container{
+        projectRepo:       projectRepo,
+        projectUsecase:    projectUsecase,
+        projectController: projectController,
+    }
+}
+
+func (c *Container) GetProjectController() *controllers.ProjectController {
+    return c.projectController
+}
+```
+
+### データベース接続の抽象化
+
+```go
+// infrastructure/database/connection.go
+package database
+
+type DatabaseConnection interface {
+    GetDB() *gorm.DB
+    Close() error
+    Migrate(models ...interface{}) error
+}
+
+type PostgreSQLConnection struct {
+    db *gorm.DB
+}
+
+func NewPostgreSQLConnection(config *Config) (DatabaseConnection, error) {
     dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
-        os.Getenv("DB_HOST"),
-        os.Getenv("DB_USER"),
-        os.Getenv("DB_PASSWORD"),
-        os.Getenv("DB_NAME"),
-        os.Getenv("DB_PORT"),
+        config.Host,
+        config.User,
+        config.Password,
+        config.Name,
+        config.Port,
     )
     
-    return gorm.Open(postgres.Open(dsn), &gorm.Config{
+    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
         Logger: logger.Default.LogMode(getLogLevel()),
     })
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    return &PostgreSQLConnection{db: db}, nil
 }
+
+func (p *PostgreSQLConnection) GetDB() *gorm.DB {
+    return p.db
+}
+
+func (p *PostgreSQLConnection) Close() error {
+    sqlDB, err := p.db.DB()
+    if err != nil {
+        return err
+    }
+    return sqlDB.Close()
+}
+```
 ```
 
 ## ⚛️ React/Next.js 実装パターン
@@ -320,45 +484,110 @@ func setupCORS(r *gin.Engine) {
 
 ## 📊 パフォーマンス最適化パターン
 
-### データベースクエリ最適化
+### データベースクエリ最適化（クリーンアーキテクチャ）
 
 ```go
-// プリロードによるN+1問題解決
-func (ps *ProjectService) GetProjectsWithFiles() ([]models.Project, error) {
-    var projects []models.Project
-    err := ps.db.
+// リポジトリでのプリロード実装
+func (r *ProjectRepositoryImpl) FindAllWithFiles(ctx context.Context, status entities.ProjectStatus) ([]*entities.Project, error) {
+    var models []ProjectModel
+    err := r.db.WithContext(ctx).
         Preload("Files").
-        Where("status = ?", "active").
+        Where("status = ?", string(status)).
         Order("created_at DESC").
-        Find(&projects).Error
+        Find(&models).Error
     
-    return projects, err
-}
-
-// ページネーション実装
-func (ps *ProjectService) GetProjectsPaginated(page, size int) (*PaginatedResult, error) {
-    var projects []models.Project
-    var total int64
-    
-    offset := (page - 1) * size
-    
-    err := ps.db.Model(&models.Project{}).Count(&total).Error
     if err != nil {
         return nil, err
     }
     
-    err = ps.db.
+    return toEntities(models), nil
+}
+
+// ページネーション専用リポジトリメソッド
+func (r *ProjectRepositoryImpl) FindPaginated(ctx context.Context, page, size int) (*repositories.PaginatedResult[*entities.Project], error) {
+    var models []ProjectModel
+    var total int64
+    
+    offset := (page - 1) * size
+    
+    // 総件数取得
+    err := r.db.WithContext(ctx).Model(&ProjectModel{}).Count(&total).Error
+    if err != nil {
+        return nil, err
+    }
+    
+    // データ取得
+    err = r.db.WithContext(ctx).
         Offset(offset).
         Limit(size).
-        Find(&projects).Error
+        Order("created_at DESC").
+        Find(&models).Error
     
-    return &PaginatedResult{
-        Data:       projects,
+    if err != nil {
+        return nil, err
+    }
+    
+    return &repositories.PaginatedResult[*entities.Project]{
+        Data:       toEntities(models),
         Total:      total,
         Page:       page,
         Size:       size,
         TotalPages: int(math.Ceil(float64(total) / float64(size))),
-    }, err
+    }, nil
+}
+
+// ユースケース層でのクエリ最適化
+func (pu *ProjectUsecase) GetActiveProjectsWithFiles(ctx context.Context) ([]*entities.Project, error) {
+    return pu.projectRepo.FindAllWithFiles(ctx, entities.StatusActive)
+}
+
+func (pu *ProjectUsecase) GetProjectsPaginated(ctx context.Context, page, size int) (*repositories.PaginatedResult[*entities.Project], error) {
+    if page < 1 {
+        page = 1
+    }
+    if size < 1 || size > 100 {
+        size = 20 // デフォルトサイズ
+    }
+    
+    return pu.projectRepo.FindPaginated(ctx, page, size)
+}
+```
+
+### 仕様パターン（複雑なクエリ条件）
+
+```go
+// domain/specifications/project_specification.go
+package specifications
+
+type ProjectSpecification interface {
+    IsSatisfiedBy(project *entities.Project) bool
+    ToSQL() (string, []interface{})
+}
+
+type ActiveProjectSpec struct{}
+
+func (s *ActiveProjectSpec) IsSatisfiedBy(project *entities.Project) bool {
+    return project.Status == entities.StatusActive
+}
+
+func (s *ActiveProjectSpec) ToSQL() (string, []interface{}) {
+    return "status = ?", []interface{}{string(entities.StatusActive)}
+}
+
+// リポジトリでの仕様パターン使用
+func (r *ProjectRepositoryImpl) FindBySpecification(ctx context.Context, spec specifications.ProjectSpecification) ([]*entities.Project, error) {
+    query, args := spec.ToSQL()
+    
+    var models []ProjectModel
+    err := r.db.WithContext(ctx).
+        Where(query, args...).
+        Find(&models).Error
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    return toEntities(models), nil
 }
 ```
 
@@ -404,50 +633,114 @@ const ProjectList = ({ projects }: { projects: Project[] }) => (
 
 ## 🧪 テスト戦略パターン
 
-### Go テストパターン
+### Go クリーンアーキテクチャテストパターン
 
 ```go
-// テーブル駆動テスト
-func TestProjectService_CreateProject(t *testing.T) {
+// ドメイン層テスト（エンティティ）
+func TestProject_CanBeDeleted(t *testing.T) {
     tests := []struct {
-        name    string
-        input   CreateProjectRequest
-        want    *Project
-        wantErr bool
+        name   string
+        status entities.ProjectStatus
+        want   bool
     }{
-        {
-            name: "valid project creation",
-            input: CreateProjectRequest{
-                Name:        "Test Project",
-                Description: "Test Description",
-            },
-            want: &Project{
-                Name:        "Test Project",
-                Description: "Test Description",
-                Status:      "active",
-            },
-            wantErr: false,
-        },
-        // その他のテストケース...
+        {"pending project can be deleted", entities.StatusPending, true},
+        {"completed project can be deleted", entities.StatusCompleted, true},
+        {"active project cannot be deleted", entities.StatusActive, false},
     }
     
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            // テスト実装
+            project := &entities.Project{Status: tt.status}
+            got := project.CanBeDeleted()
+            assert.Equal(t, tt.want, got)
         })
     }
 }
 
-// モックパターン
-type MockProjectService struct {
-    projects map[string]*Project
+// ユースケース層テスト（モックリポジトリ使用）
+func TestProjectUsecase_CreateProject(t *testing.T) {
+    mockRepo := &MockProjectRepository{}
+    usecase := usecases.NewProjectUsecase(mockRepo)
+    
+    project, err := usecase.CreateProject(context.Background(), "Test Project", "Description")
+    
+    assert.NoError(t, err)
+    assert.Equal(t, "Test Project", project.Name)
+    assert.Equal(t, entities.StatusPending, project.Status)
+    assert.True(t, mockRepo.SaveCalled)
 }
 
-func (m *MockProjectService) GetProject(id string) (*Project, error) {
+// リポジトリ層テスト（インメモリDB使用）
+func TestProjectRepositoryImpl_Save(t *testing.T) {
+    db := setupTestDB(t)
+    repo := repositories.NewProjectRepositoryImpl(db)
+    
+    project := &entities.Project{
+        ID:   "test-id",
+        Name: "Test Project",
+    }
+    
+    err := repo.Save(context.Background(), project)
+    assert.NoError(t, err)
+    
+    // 保存されたデータの検証
+    saved, err := repo.FindByID(context.Background(), "test-id")
+    assert.NoError(t, err)
+    assert.Equal(t, project.Name, saved.Name)
+}
+```
+
+### モックとテストダブルパターン
+
+```go
+// リポジトリモック
+type MockProjectRepository struct {
+    projects   map[string]*entities.Project
+    SaveCalled bool
+}
+
+func NewMockProjectRepository() *MockProjectRepository {
+    return &MockProjectRepository{
+        projects: make(map[string]*entities.Project),
+    }
+}
+
+func (m *MockProjectRepository) Save(ctx context.Context, project *entities.Project) error {
+    m.SaveCalled = true
+    m.projects[project.ID] = project
+    return nil
+}
+
+func (m *MockProjectRepository) FindByID(ctx context.Context, id string) (*entities.Project, error) {
     if project, exists := m.projects[id]; exists {
         return project, nil
     }
-    return nil, errors.New("project not found")
+    return nil, domain.ErrProjectNotFound
+}
+
+// コントローラー統合テスト
+func TestProjectController_CreateProject(t *testing.T) {
+    // テスト用の依存関係を構築
+    mockRepo := NewMockProjectRepository()
+    usecase := usecases.NewProjectUsecase(mockRepo)
+    controller := controllers.NewProjectController(usecase)
+    
+    // テスト用Ginエンジン
+    gin.SetMode(gin.TestMode)
+    router := gin.New()
+    router.POST("/projects", controller.CreateProject)
+    
+    // テストリクエスト
+    requestBody := `{"name":"Test Project","description":"Test Description"}`
+    req := httptest.NewRequest("POST", "/projects", strings.NewReader(requestBody))
+    req.Header.Set("Content-Type", "application/json")
+    
+    w := httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+    
+    // レスポンス検証
+    assert.Equal(t, http.StatusCreated, w.Code)
+    assert.Contains(t, w.Body.String(), "Test Project")
 }
 ```
 
@@ -537,4 +830,4 @@ jobs:
           npm test
 ```
 
-これらのパターンを参考に、プロジェクトの要件に応じてカスタマイズしてください。一貫性のあるコードベースと高い保守性を維持できます。 
+これらのクリーンアーキテクチャパターンを参考に、プロジェクトの要件に応じてカスタマイズしてください。依存関係逆転の原則により、テスタブルで保守性の高いコードベースを維持できます。 
