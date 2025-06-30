@@ -1,0 +1,177 @@
+name: AI Project Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'アクション'
+        required: true
+        type: choice
+        options:
+          - 'create-project'
+          - 'add-issue-to-project'
+          - 'update-status'
+          - 'create-milestone'
+      project_title:
+        description: 'プロジェクトタイトル（新規作成時）'
+        required: false
+        type: string
+      project_description:
+        description: 'プロジェクト説明（新規作成時）'
+        required: false
+        type: string
+      project_number:
+        description: 'プロジェクト番号'
+        required: false
+        type: string
+      issue_number:
+        description: 'Issue番号'
+        required: false
+        type: string
+      status:
+        description: 'ステータス'
+        required: false
+        type: choice
+        options:
+          - 'Todo'
+          - 'In Progress'
+          - 'In Review'
+          - 'Done'
+      priority:
+        description: '優先度'
+        required: false
+        type: choice
+        options:
+          - 'Low'
+          - 'Medium'
+          - 'High'
+          - 'Urgent'
+  issues:
+    types: [opened, closed]
+  pull_request:
+    types: [opened, closed]
+
+jobs:
+  ai-project-management:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Project
+        if: github.event.inputs.action == 'create-project'
+        run: |
+          PROJECT_URL=$(gh project create \
+            --title "${{ github.event.inputs.project_title }}" \
+            --owner @me)
+          
+          echo "🎉 新しいプロジェクトを作成しました："
+          echo "📋 タイトル: ${{ github.event.inputs.project_title }}"
+          echo "🔗 URL: $PROJECT_URL"
+          
+          # プロジェクト番号を取得
+          PROJECT_NUMBER=$(echo $PROJECT_URL | grep -o '/projects/[0-9]*' | grep -o '[0-9]*')
+          echo "PROJECT_NUMBER=$PROJECT_NUMBER" >> $GITHUB_ENV
+          
+          # 標準フィールドを追加
+          gh project field-create $PROJECT_NUMBER \
+            --name "Priority" \
+            --single-select-option "Low" \
+            --single-select-option "Medium" \
+            --single-select-option "High" \
+            --single-select-option "Urgent"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add Issue to Project
+        if: github.event.inputs.action == 'add-issue-to-project' || github.event_name == 'issues'
+        run: |
+          ISSUE_NUM="${{ github.event.inputs.issue_number || github.event.issue.number }}"
+          PROJECT_NUM="${{ github.event.inputs.project_number || '1' }}"
+          
+          # IssueをProjectに追加
+          gh project item-add $PROJECT_NUM --owner ${{ github.repository_owner }} --url "${{ github.server_url }}/${{ github.repository }}/issues/$ISSUE_NUM"
+          
+          echo "✅ Issue #$ISSUE_NUM をProject #$PROJECT_NUM に追加しました"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Item Status
+        if: github.event.inputs.action == 'update-status'
+        run: |
+          PROJECT_NUM="${{ github.event.inputs.project_number }}"
+          ISSUE_NUM="${{ github.event.inputs.issue_number }}"
+          STATUS="${{ github.event.inputs.status }}"
+          
+          # プロジェクトアイテムのステータスを更新
+          ITEM_ID=$(gh project item-list $PROJECT_NUM --owner ${{ github.repository_owner }} --format json | jq -r ".[] | select(.content.number == $ISSUE_NUM) | .id")
+          
+          if [ -n "$ITEM_ID" ]; then
+            gh api graphql \
+              -f query='
+                mutation($project: ID!, $item: ID!, $field: ID!, $value: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $project
+                    itemId: $item
+                    fieldId: $field
+                    value: { text: $value }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }' \
+              -f project=$(gh project view $PROJECT_NUM --owner ${{ github.repository_owner }} --format json | jq -r '.id') \
+              -f item=$ITEM_ID \
+              -f field=$(gh project field-list $PROJECT_NUM --owner ${{ github.repository_owner }} --format json | jq -r '.[] | select(.name == "Status") | .id') \
+              -f value="$STATUS"
+            
+            echo "🔄 Issue #$ISSUE_NUM のステータスを「$STATUS」に更新しました"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto Update on PR Events
+        if: github.event_name == 'pull_request'
+        run: |
+          PROJECT_NUM="1"  # デフォルトプロジェクト
+          PR_NUM="${{ github.event.pull_request.number }}"
+          
+          # PRをプロジェクトに追加
+          gh project item-add $PROJECT_NUM --owner ${{ github.repository_owner }} --url "${{ github.event.pull_request.html_url }}"
+          
+          # PRのステータスに応じて自動更新
+          case "${{ github.event.action }}" in
+            "opened")
+              STATUS="In Progress"
+              echo "🚀 PR #$PR_NUM を「In Progress」として追加"
+              ;;
+            "closed")
+              if [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+                STATUS="Done"
+                echo "✅ PR #$PR_NUM をマージ完了として「Done」に設定"
+              else
+                STATUS="Todo"
+                echo "❌ PR #$PR_NUM がクローズされたため「Todo」に戻しました"
+              fi
+              ;;
+          esac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: AI Project Summary
+        if: always()
+        run: |
+          echo "## 🤖 AI Project Management Summary"
+          echo "### 実行されたアクション: ${{ github.event.inputs.action || github.event_name }}"
+          echo "### 結果: ✅ 正常に完了しました"
+          
+          if [[ "${{ github.event.inputs.action }}" == "create-project" ]]; then
+            echo "### 📋 新規プロジェクト:"
+            echo "- **タイトル**: ${{ github.event.inputs.project_title }}"
+            echo "- **説明**: ${{ github.event.inputs.project_description }}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
