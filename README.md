@@ -139,18 +139,34 @@ make build-prod
 docker-compose -f docker-compose.prod.yml build
 ```
 
-## 🤖 AI Issue作成システム
+## 🤖 AI駆動プロジェクト管理システム
 
-プロジェクトには効率的なissue管理のためのAI対応システムが組み込まれています。
+プロジェクトには効率的なissue管理とGitHub Projects連携のためのAI対応システムが組み込まれています。
 
-### 利用可能な機能
+### 🔧 AI Issue作成システム
 - **GitHub Actions ワークフロー**: 手動でissueを作成
 - **Issue テンプレート**: バグレポートと機能要求の標準化
 - **コマンドラインスクリプト**: 素早いissue作成
 - **AI アシスタント連携**: 自然言語での指示によるissue作成
 
+### 📋 AI Projects管理システム
+- **プロジェクト自動作成**: AI指示による効率的なプロジェクト立ち上げ
+- **自動タスク管理**: Issue/PRの自動プロジェクト追加とステータス更新
+- **スプリント管理**: 優先度とスプリント計画の自動化
+- **進捗追跡**: リアルタイムでの開発進捗確認
+
 ### 使用方法
-詳細は [`ISSUE_CREATION_GUIDE.md`](./ISSUE_CREATION_GUIDE.md) を参照してください。
+- Issue作成: [`ISSUE_CREATION_GUIDE.md`](./ISSUE_CREATION_GUIDE.md)
+- Projects管理: [`AI_PROJECT_MANAGEMENT_GUIDE.md`](./AI_PROJECT_MANAGEMENT_GUIDE.md)
+
+### クイックスタート
+```bash
+# AI開発環境のセットアップ
+./scripts/project-manager.sh ai-setup
+
+# プロジェクト一覧確認
+./scripts/project-manager.sh list-projects
+```
 
 ## 📋 チーム開発のベストプラクティス
 
