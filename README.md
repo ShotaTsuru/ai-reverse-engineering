@@ -25,6 +25,7 @@ Go + Next.js + PostgreSQL + Redis による現代的なWebアプリケーショ�
 - 🔒 **セキュリティ**: CORS設定、環境変数管理
 - ⚡ **高速開発**: ホットリロード対応開発サーバー
 - 🧪 **テスト準備**: フロントエンド・バックエンド両方のテスト環境
+- 🤖 **AI Issue作成システム**: GitHub Actionsとテンプレートによる効率的なissue管理
 
 ## 🛠️ 技術スタック
 
@@ -138,6 +139,41 @@ make build-prod
 docker-compose -f docker-compose.prod.yml build
 ```
 
+## 🤖 AI駆動プロジェクト管理システム
+
+プロジェクトには効率的なissue管理とGitHub Projects連携のためのAI対応システムが組み込まれています。
+
+### 🔧 AI Issue作成システム
+- **GitHub Actions ワークフロー**: 手動でissueを作成
+- **Issue テンプレート**: バグレポートと機能要求の標準化
+- **コマンドラインスクリプト**: 素早いissue作成
+- **AI アシスタント連携**: 自然言語での指示によるissue作成
+
+### 📋 AI Projects管理システム
+- **プロジェクト自動作成**: AI指示による効率的なプロジェクト立ち上げ
+- **自動タスク管理**: Issue/PRの自動プロジェクト追加とステータス更新
+- **スプリント管理**: 優先度とスプリント計画の自動化
+- **進捗追跡**: リアルタイムでの開発進捗確認
+
+### 🔗 GitHub MCP サーバー統合
+- **Model Context Protocol 対応**: 自然言語でのGitHub操作
+- **Visual Studio Code 統合**: エディタ内でのGitHub操作
+- **高度なAI連携**: コンテキストを理解したGitHub操作
+
+### 使用方法
+- Issue作成: [`ISSUE_CREATION_GUIDE.md`](./ISSUE_CREATION_GUIDE.md)
+- Projects管理: [`AI_PROJECT_MANAGEMENT_GUIDE.md`](./AI_PROJECT_MANAGEMENT_GUIDE.md)
+- MCP設定: [`MCP_SETUP_GUIDE.md`](./MCP_SETUP_GUIDE.md)
+
+### クイックスタート
+```bash
+# AI開発環境のセットアップ
+./scripts/project-manager.sh ai-setup
+
+# プロジェクト一覧確認
+./scripts/project-manager.sh list-projects
+```
+
 ## 📋 チーム開発のベストプラクティス
 
 ### 1. 環境統一
@@ -153,6 +189,11 @@ docker-compose -f docker-compose.prod.yml build
 - feature ブランチでの開発
 - プルリクエストによるコードレビュー
 - main ブランチの保護
+
+### 4. Issue管理
+- Issue作成システムを活用した効率的なタスク管理
+- 適切なラベルと優先度の設定
+- テンプレートを使用した情報の標準化
 
 ## 🤝 コントリビューション
 

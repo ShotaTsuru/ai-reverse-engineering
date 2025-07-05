@@ -36,10 +36,16 @@ backend/coverage.txt
 
 # IDE
 .vscode/
+!.vscode/mcp.json
+!.vscode/mcp.json.sample
 .idea/
 *.swp
 *.swo
 *~
+
+# MCP (Model Context Protocol) runtime files
+.vscode/mcp-cache/
+.vscode/mcp-logs/
 
 # OS generated files
 .DS_Store
