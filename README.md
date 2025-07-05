@@ -155,9 +155,15 @@ docker-compose -f docker-compose.prod.yml build
 - **スプリント管理**: 優先度とスプリント計画の自動化
 - **進捗追跡**: リアルタイムでの開発進捗確認
 
+### 🔗 GitHub MCP サーバー統合
+- **Model Context Protocol 対応**: 自然言語でのGitHub操作
+- **Visual Studio Code 統合**: エディタ内でのGitHub操作
+- **高度なAI連携**: コンテキストを理解したGitHub操作
+
 ### 使用方法
 - Issue作成: [`ISSUE_CREATION_GUIDE.md`](./ISSUE_CREATION_GUIDE.md)
 - Projects管理: [`AI_PROJECT_MANAGEMENT_GUIDE.md`](./AI_PROJECT_MANAGEMENT_GUIDE.md)
+- MCP設定: [`MCP_SETUP_GUIDE.md`](./MCP_SETUP_GUIDE.md)
 
 ### クイックスタート
 ```bash
